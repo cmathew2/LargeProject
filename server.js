@@ -21,7 +21,9 @@ const validEmail = (email) => {
     );
 };
 
-//function used to validate the JWT token
+//function used to validate the JWT token 
+//implement Token to each post api
+
 function validateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -209,7 +211,6 @@ app.post('/api/register', async (req, res, next) =>
   }
   
 
-
   let ret = { added:bool, firstName:firstName, lastName:lastName, login:login, password:password, email: email, error:''};
   res.status(200).json(ret);
 });
@@ -227,6 +228,7 @@ app.get('/api/verify-email', async (req, res, next) => {
     user.emailToken = null;
     user.verified = true;
     await user.save();
+    res.redirect('/api/login')
   }
   catch (error) {
     console.log(error);
@@ -236,7 +238,8 @@ app.get('/api/verify-email', async (req, res, next) => {
 });
 
 app.post('/api/forgotpassword', async (req, res, next) => {
-
+//input: email
+//output: Reset password email
   const {email} = req.body;
 
   if(!validEmail(email)) {
@@ -247,7 +250,7 @@ app.post('/api/forgotpassword', async (req, res, next) => {
   const db = client.db("FeastBook");
   const results = await db.collection('User').find({email}).toArray();
 
-  
+  if (results.length<= 0)
   try {
     const message = {
       to: user.email,
@@ -268,7 +271,16 @@ app.post('/api/forgotpassword', async (req, res, next) => {
             <a href="http://${req.headers.host}/resetpassword?token=${newUser.emailToken}">Reset your password</a>
       `
     };
-
+    try{
+      await sgMail.send(message);
+      req.flash('Success. Check Your Email to reset your password.')
+      res.redirect('/');
+    }
+    catch(e){
+      console.log(error);
+      req.flash('error', 'Something has gone wrong.')
+      res.redirect('/');
+    }
     }
   catch{}
 });
