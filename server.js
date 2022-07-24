@@ -1,5 +1,4 @@
 require('dotenv').config();
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -10,8 +9,38 @@ const bcrypt =require('bcrypt');
 const jwt = require('jsonwebtoken');
 const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-const cryptoRandomString = require('crypto-random-string');
 
+const cryptoRandomString = require('crypto-random-string');
+const { Verify } = require('crypto');
+
+const validEmail = (email) => {
+  return String(email)
+  .toLowerCase()
+  .match(
+    /^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
+    );
+};
+
+//function used to validate the JWT token
+function validateToken(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (token == null) {
+    res.status(401).json({error: 'Unauthorized'});
+    return;
+  }
+
+  jwt.verify(token, process.env.JWT_KEY, (err, decoded) => {
+    if (err) {
+      res.status(401).json({error: 'Forbidden'});
+      return;
+    }
+
+    req.tokenData = decoded;
+    next();
+  });
+}
 
 const url = 'mongodb+srv://dbuser:weakPASSWORD21@cluster0.ygm9c8s.mongodb.net/?retryWrites=true&w=majority'; 
 
@@ -81,11 +110,13 @@ app.post('/api/login', async (req, res, next) =>
                 message: 'Authenication Failed'
             })
         }
+        //jwt
         if(result){
-        const jwtoken = jwt.sign(
-          {lo: user}
+        const token = jwt.sign(
+          {login: login},
+          process.env.JWT_KEY,
+          {expiresIn: "2h"}
         );
-        
 
         if( results.length > 0 )
         {
@@ -96,7 +127,6 @@ app.post('/api/login', async (req, res, next) =>
 
         let ret = { id:id, firstname:firstName, lastname:lastName, error:''};
         res.status(200).json(ret);
-                
         }
      })
 });
@@ -116,8 +146,8 @@ app.post('/api/register', async (req, res, next) =>
   var newUser = new User({
     login: login,
     email: email,
-    emailToken: cryptoRandomString(10),
-    added: false
+    emailToken: crypto.getRandomValues(32).toString('hex'),
+    verified: false
   });
 
   const numUsers = await db.collection('Users').find({login:login}).toArray();
@@ -126,6 +156,7 @@ app.post('/api/register', async (req, res, next) =>
   { if(numUsers.length <= 0)
     {
       //password hashing
+      bcrypt.genSalt(10, (err,salt)=> {
       bcrypt.hash(password,10,(err, hash) => {
         if(err){
             res.status(500).json({
@@ -163,8 +194,8 @@ app.post('/api/register', async (req, res, next) =>
             req.flash('error', 'Something has gone wrong.')
             res.redirect('/');
           }
-        }});
-    }
+        }})});
+  }
     else
     {
       console.log("User already exists")
@@ -177,17 +208,25 @@ app.post('/api/register', async (req, res, next) =>
     bool = false;
   }
   
+
+
   let ret = { added:bool, firstName:firstName, lastName:lastName, login:login, password:password, email: email, error:''};
   res.status(200).json(ret);
 });
 
 app.get('/api/verify-email', async (req, res, next) => {
+
+  const db = client.db("FeastBook");
+
   try {
     const user = await User.findOne({emailToken: req.query.emailToken })
     if (!user) {
       req.flash('Invalid token');
       res.redirect('/');
     }
+    user.emailToken = null;
+    user.verified = true;
+    await user.save();
   }
   catch (error) {
     console.log(error);
@@ -197,14 +236,17 @@ app.get('/api/verify-email', async (req, res, next) => {
 });
 
 app.post('/api/forgotpassword', async (req, res, next) => {
-<<<<<<< HEAD
+
   const {email} = req.body;
 
-  User.findOne.({email:email})
- 
-  
-=======
->>>>>>> e8d55b854a4b16b31449f8d38e18fab6182ab666
+  if(!validEmail(email)) {
+    res.status(400).json({error: 'Invalid Email'})
+    return
+  }
+
+  const db = client.db("FeastBook");
+  const results = await db.collection('User').find({email}).toArray();
+
   
   try {
     const message = {
@@ -233,12 +275,22 @@ app.post('/api/forgotpassword', async (req, res, next) => {
 
 app.get('/api/resetpassword', async (req, res, next) => {
   let error = '';
+  const db = client.db("FeastBook");
+  
   try {
-    
+    const {userID, password} = req.body;
+
+    const user = await db.collection('User').find({userID});
+    if (!user) return res.status(400)
+
+    user.password = password;
+    await user.save();
+
+    user.resetToken = null;
 
     }
-  catch{
-
+  catch (error){
+      res.status(500).send({message: "Server error"})
   }
 });
 
